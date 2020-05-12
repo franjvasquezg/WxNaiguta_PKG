@@ -1,21 +1,23 @@
 CREATE OR REPLACE PACKAGE SGCVNZ.PQPMAESTRO IS
 /***************************************************************************************************
 *********   Proyecto : Procesadora Venezuela   *****************************************************
-*********   Proposito: Compensación y Conciliación Maestro    **************************************
+*********   Proposito: Compensaci��n y Conciliaci��n Maestro    **************************************
  Historial
  =========
  Persona                  Fecha           Comentarios
  --------------------     -----------     ------------
- Jesús Muñante Gonzales.  15/Febrero/2008   Compensación y Conciliación Maestro
+ Jes��s Mu��ante Gonzales.  15/Febrero/2008   Compensaci��n y Conciliaci��n Maestro
 
  parametro del Package: pbanco char [BM:Mercantil, BP:Provincial]
- parametro del Package: pfecha char [año|mes|dia 20070827]
+ parametro del Package: pfecha char [a��o|mes|dia 20070827]
  parametro del Package: pcarga char [N:Nuevo, R:Reproceso]
- Barbara Rivas.           03/02/2020        Compensaci�n y Conciliaci�n Maestro Naiguata 
- Francisco vasquez        04/03/2020        Ajustes producci�n
+ Barbara Rivas.           03/02/2020        Compensaci���n y Conciliaci���n Maestro Naiguata
+ Francisco vasquez        04/03/2020        Ajustes producci���n
+ FVG y BR                 08/05/2020        Conciliacion con NREC para naiguata IPR1302   
 ****************************************************************************************************/
-vIdPart          CHAR           :=NULL;  /* INCLUSIÓN DEL PARTICIONAMINTO */
+vIdPart          CHAR           :=NULL;  /* INCLUSI��N DEL PARTICIONAMINTO */
 vidMes          NUMBER          :=NULL;
+wkStrPart       CHAR(4)         :=NULL;  /* Variable de particion de naigguata*/
 type Reg_TMP is record(
         NBR                            NUMBER,
         MSGTYPE                        CHAR(4),
@@ -120,7 +122,7 @@ type Reg_TMP_COMP is record(
   PROCEDURE p_SaveDiferencia( preg Reg_TMP, pfecha DATE, ptipodiff VARCHAR2);
   FUNCTION pf_Load_compensacion(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2) RETURN VARCHAR2;
   FUNCTION pf_Load_conciliacion(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2:=NULL) RETURN VARCHAR2;
-
+  /* GlobalR - Brivas: Agregado 2020-01-30 IPR_1302) */
   FUNCTION pf_Load_compensacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2) RETURN VARCHAR2;
   FUNCTION pf_Load_conciliacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2:=NULL) RETURN VARCHAR2;
   PROCEDURE p_CopyMovimientosMCP_Ngta(pfecha DATE, pbanco VARCHAR2);
@@ -128,11 +130,18 @@ type Reg_TMP_COMP is record(
   FUNCTION f_GetBuscaNumRegistros_Ngta(preg Reg_TMP) return number;
   FUNCTION f_GetTipoDiferencia_Ngta(preg Reg_TMP) return char;
   PROCEDURE p_SaveConciliacion_Ngta(preg Reg_TMP, pfecha DATE);
-  
+  /*Fin Adici??n de procedimientos IPR_1302.*/
+  /*GlobalR - FV: e procedimientos IPR_1302. 06-05-2020*/
+  FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number;
+  FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char;
+  PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2);
+  /*FIN - FV: e procedimientos IPR_1302. 06-05-2020*/
 end;
 /
 
+
 GRANT EXECUTE ON SGCVNZ.PQPMAESTRO TO ROLE_SOPTECN;
+
 CREATE OR REPLACE PACKAGE BODY SGCVNZ.PQPMAESTRO is
 vIDFile         utl_file.file_type;
 vDirTMP         varchar2(100)   := 'DIR-TMP';
@@ -149,7 +158,7 @@ eFinError       exception;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Funcion     : f_ini_RegTMP2
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Funcion que inicializa registros tipo Reg_TMP2.
+-- Descripci��n : Funcion que inicializa registros tipo Reg_TMP2.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION f_ini_RegCLR return Reg_CLR is
@@ -161,7 +170,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Procedure   : p_SaveDiferencia
 -- Autor       : Jesus Munante Gonzales
--- Descripción : proceso inserta el registro en la tabla de diferencias.
+-- Descripci��n : proceso inserta el registro en la tabla de diferencias.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 PROCEDURE p_SaveDiferencia( preg Reg_TMP, pfecha DATE, ptipodiff VARCHAR2) AS
@@ -188,7 +197,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Procedure   : p_CopyMovimientosMCP
 -- Autor       : Jesus Munante Gonzales
--- Descripción : proceso que actualiza la tabla de MCP_MAESTRO_CONC obteniendo
+-- Descripci��n : proceso que actualiza la tabla de MCP_MAESTRO_CONC obteniendo
 --               los datos de MCP_BP y MCP_BP.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -198,7 +207,7 @@ PROCEDURE p_CopyMovimientosMCP(pfecha DATE, pbanco VARCHAR2) AS
     vfecha      DATE;
     wkIdPart   CHAR;                         /* VARIABLE  LA PARTICION */
     wkIdMes    CHAR(2);                   /*  VARIABLE SUBPARTICION */
-    
+
 BEGIN
     -- ACTUALIZA TABLA MAESTRO CONCILIACION
     FOR ndias IN REVERSE 0..5 LOOP
@@ -229,7 +238,7 @@ BEGIN
             -- BANCO MERCANTIL
             IF pbanco='BM' THEN
                 INSERT /*+ APPEND */INTO mcp_maestro_conc
-                (id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                (idparticion ,id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg, /* Modificado por TsT , asignando partici�n por default 25/04/2020 */
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -240,8 +249,8 @@ BEGIN
                 p56do_idmsg, p56do_idetra, p56do_timloc, p56do_idadq, p58idaut,
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, flg_concil, fec_sesion)
-                SELECT /*+ INDEX(mcp idxp_mcp_bm_adqp28hc) */ 
-                id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                SELECT /*+ INDEX(mcp idxp_mcp_bm_adqp28hc) */
+                'C000',id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg, /* Modificado por TsT , asignando partici�n por default 25/04/2020 */
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -254,7 +263,7 @@ BEGIN
                 tipo_auxfunc, 'P', TO_DATE(p28sesion,'YYYYMMDD')
                 FROM mcp_bm mcp
                 WHERE idparticion =wkIdPart
-                AND    id_mes       =wkIdMes 
+                AND    id_mes       =wkIdMes
                 AND cod_entadq = 'BM'
                 AND p28sesion = TO_CHAR(vfecha-1,'YYYYMMDD')
                 AND p48tiptra LIKE '10%'
@@ -262,7 +271,7 @@ BEGIN
             -- BANCO PROVINCIAL
             ELSIF pbanco='BP' THEN
                 INSERT /*+ APPEND */INTO mcp_maestro_conc
-                (id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                (idparticion,id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg, /* Modificado por TsT , asignando partici�n por default 25/04/2020 */
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -273,8 +282,8 @@ BEGIN
                 p56do_idmsg, p56do_idetra, p56do_timloc, p56do_idadq, p58idaut,
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, flg_concil, fec_sesion)
-                SELECT /*+ INDEX(mcp idxp_mcp_bp_adqp28hc) */ 
-                id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                SELECT /*+ INDEX(mcp idxp_mcp_bp_adqp28hc) */
+                'C000',id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg, /* Modificado por TsT , asignando partici�n por default 25/04/2020 */
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -287,7 +296,7 @@ BEGIN
                 tipo_auxfunc, 'P', TO_DATE(p28sesion,'YYYYMMDD')
                 FROM mcp_bp mcp
                 WHERE idparticion =wkIdPart
-                AND    id_mes       =wkIdMes  
+                AND    id_mes       =wkIdMes
                 AND cod_entadq = 'BP'
                 AND p28sesion       = TO_CHAR(vfecha-1,'YYYYMMDD')
                 AND p48tiptra LIKE '10%'
@@ -302,7 +311,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Procedure   : p_SaveConciliacion
 -- Autor       : Jesus Munante Gonzales
--- Descripción : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC.
+-- Descripci��n : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 PROCEDURE p_SaveConciliacion(preg Reg_TMP, pfecha DATE) AS
@@ -311,28 +320,32 @@ BEGIN
 
     IF (preg.msgtype = 'FREC') THEN
         -- VENTA
-        UPDATE mcp_maestro_conc mcp
+        UPDATE mcp_maestro_conc PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici�n por DEFAULT 25/04/2020 */
            SET flg_concil = 'C',
                fec_concil = pfecha,
                p03codpro_maestro = preg.p03codpro,
                p04imptra_maestro = preg.p04imptra,
-               p46tcuot01_maestro = preg.p46tcuot01
+               p46tcuot01_maestro = preg.p46tcuot01,
+               idparticion        = wkStrPart /* Establecer la nueva partici�n 25/04/2020*/
          WHERE mcp.p12timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p11idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.idparticion ='C000';        /* Actualizar en base a la particion actual 25/04/2020*/
     ELSIF (preg.msgtype = 'EREC') THEN
         -- ANULACION
-        UPDATE mcp_maestro_conc mcp
+        UPDATE mcp_maestro_conc PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici�n por DEFAULT 25/04/2020 */
            SET flg_concil = 'C',
                fec_concil = pfecha,
                p03codpro_maestro = preg.p03codpro,
                p04imptra_maestro = preg.p04imptra,
-               p46tcuot01_maestro = preg.p46tcuot01
+               p46tcuot01_maestro = preg.p46tcuot01,
+               idparticion        = wkStrPart    /* Establecer la nueva partici�n 25/04/2020*/
          WHERE mcp.p56do_timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.idparticion ='C000';        /* Actualizar en base a la particion actual 25/04/2020*/
     END IF;
     COMMIT;
 END;
@@ -340,7 +353,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Funcion     : f_GetBuscaNumRegistros
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Funcion que obtiene la cantidad de registros en la tabla
+-- Descripci��n : Funcion que obtiene la cantidad de registros en la tabla
 --               "MCP_MAESTRO_CONC" de a acuerdo al registro buscado.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -355,7 +368,8 @@ BEGIN
          WHERE mcp.p12timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p11idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND idparticion    ='C000'; /* Colocado por TsT 25/04/2020*/
     ELSIF (preg.msgtype = 'EREC') THEN
         -- ANULACIONES
         SELECT NVL (COUNT (*), 0)
@@ -364,7 +378,8 @@ BEGIN
          WHERE mcp.p56do_timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND idparticion    ='C000'; /* Colocado por TsT 25/04/2020*/
     END IF;
     RETURN vncont;
 END;
@@ -372,7 +387,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Funcion     : f_GetIdEntAdq
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Retorna La Entidad correspondiente a los codigos enviados por
+-- Descripci��n : Retorna La Entidad correspondiente a los codigos enviados por
 --               Maestro.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -386,8 +401,8 @@ BEGIN
         vIDEntAdq_BM := '1986227512';
         vIDEntAdq_BP := '1993731318';
     ELSE
-        vIDEntAdq_BM := '0986227512';  -- 0986227512 pruebas naiguata IPR 1302
-        vIDEntAdq_BP := '0993731318';  -- 1986231317 Sustituido 06032020 FJVG IPR1302
+        vIDEntAdq_BM := '1986227512';  -- 0986227512 pruebas naiguata IPR 1302
+        vIDEntAdq_BP := '1993731318';  -- Nuevo cambio 0993731318 - 06052020 :1986231317 Sustituido 06032020 FJVG IPR1302
     END IF;
     -- DETERMINA COD_ENTADQ
     vRet := NULL;
@@ -402,8 +417,8 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Funcion     : f_GetImporteComisionP46
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Retorna el Importe de Comision (+) o (-) segun Codigo de proceso
---               Además realiza el tipo de cambio respectivo.
+-- Descripci��n : Retorna el Importe de Comision (+) o (-) segun Codigo de proceso
+--               Adem��s realiza el tipo de cambio respectivo.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION f_GetImporteComisionP46(
@@ -439,7 +454,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Funcion     : f_GetTipoDiferencia
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Funcion que obtiene los tipo de diferencia por Monto o Importe.
+-- Descripci��n : Funcion que obtiene los tipo de diferencia por Monto o Importe.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION f_GetTipoDiferencia(preg Reg_TMP) return char is
@@ -455,7 +470,8 @@ BEGIN
          WHERE mcp.p12timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p11idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND idparticion    ='C000'; /* Colocado por TsT 25/04/2020*/
     ELSIF preg.msgtype = 'EREC' THEN
         -- ANULACIONES
         SELECT p49montra, p04imptra
@@ -464,7 +480,8 @@ BEGIN
          WHERE mcp.p56do_timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
-           AND mcp.cod_entadq = preg.p32idadq;
+           AND mcp.cod_entadq = preg.p32idadq
+           AND idparticion    ='C000' ;/* Colocado por TsT 25/04/2020*/
     END IF;
 
     vTDif := null;
@@ -485,7 +502,7 @@ END;
 -- Procedure   : pf_Load_compensacion
 --               pfecha -> Fecha de proceso
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Proceso para compensación, lee la tabla "TMP_MAESTRO_COMP",
+-- Descripci��n : Proceso para compensaci��n, lee la tabla "TMP_MAESTRO_COMP",
 --               obtiene importes y operaciones y actualiza la tabla
 --               "CLR_RESUMEN_MAESTRO".
 -- Precondicion: Debe de estar procesado la conciliacion de esta fecha.
@@ -648,7 +665,7 @@ END;
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Procedure   : pf_Load_conciliacion
 -- Autor       : Jesus Munante Gonzales
--- Descripción : Proceso para conciliación entre las transacciones de "MAESTRO"
+-- Descripci��n : Proceso para conciliaci��n entre las transacciones de "MAESTRO"
 --               y la "PROCESADORA". Se consideran los siguientes valores para
 --               los tipos de diferencias:
 --
@@ -691,13 +708,16 @@ BEGIN
     ******************************/
 
     -- COPIA MOVIMIENTOS DE MCP
-    pqmonproc.inslog(vIdProc, 'M', 'Copia movimientos de MCP');
+    pqmonproc.inslog(vIdProc, 'M', 'Inicio Copia movimientos de MCP: '||pcod_entadq); /* Modificado por TsT 25/04/2020 */
     p_CopyMovimientosMCP(pfecha, pcod_entadq);
+    pqmonproc.inslog(vIdProc, 'M', 'Fin Copia movimientos de MCP:'||pcod_entadq);   /* Modificado por TsT 25/04/2020 */
+    
     -- REESTABLECE COMO PENDIENTES DATOS CONCILIADOS ANTES
     pqmonproc.inslog(vIdProc, 'M', 'Reestablece como Pendientes datos anteriores');
     UPDATE mcp_maestro_conc
        SET flg_concil = 'P',
-           fec_concil = NULL
+           fec_concil = NULL,
+           idparticion ='C000' /* Colocado por TsT 25/04/2020*/
      WHERE cod_entadq = pcod_entadq
        AND fec_concil = pfecha;
     COMMIT;
@@ -732,6 +752,12 @@ BEGIN
     /* REALIZANDO CRUCE MAESTRO Y PROCESADORA
     *****************************************/
     pqmonproc.inslog(vIdProc, 'M', 'Realizando cruce entre Maestro y Procesadora');
+    ---------------------------------------------------------------------
+    --- Obtener la particion correspondiente a pfecha 25/04/2020      ---
+    wkStrPart:=SGCVNZ.FN_GETPARTICION(TO_CHAR(pfecha,'YYYY'))||TO_CHAR(pfecha,'MM')||TO_CHAR(pfecha,'DAY','NLS_DATE_LANGUAGE=''numeric date language''');
+    ---------------------------------------------------------------------
+    pqmonproc.inslog(vIdProc, 'M', 'Capturando particion: ==>'||wkStrPart);
+    pqmonproc.inslog(vIdProc, 'M', 'Inicio Conciliacion y Diferencias '||pcod_entadq); /* Modificado por TsT 25/04/2020 */
     LOOP
     FETCH CurTMP INTO RegTMP;
     EXIT WHEN CurTMP%NOTFOUND;
@@ -763,7 +789,7 @@ BEGIN
         END IF;
     END LOOP;
     CLOSE CurTMP;
-
+    pqmonproc.inslog(vIdProc, 'M', 'Fin Conciliacion y Diferencias '||pcod_entadq); /* Modificado por TsT 25/04/2020 */
     -- RESUMEN
     pqmonproc.inslog(vIdProc, 'M', 'Resumen de Carga:');
     pqmonproc.inslog(vIdProc, 'M', ' - Total : '  ||LTRIM(TO_CHAR(vTotReg,'999,999'))||' registros');
@@ -817,6 +843,21 @@ BEGIN
     vretc := pqmonproc.updmonproc(vIdProc, 'E', vErrCod);
 END;
 
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : pf_Load_conciliacion_ngta.
+-- Fecha Creac.: 31/01/2020.
+-- Autor       : Barbara Rivas.
+-- Descripcion : Proceso para conciliacion entre las transacciones de "MAESTRO NAIGUATA"
+--               y la "PROCESADORA". Se consideran los siguientes valores para
+--               los tipos de diferencias:
+--
+--                  EM = Existe en "MAESTRO NAIGUATA" y no en "PROCESADORA".
+--                  DM = Diferencia por Moneda.
+--                  DI = Diferencia por Importe.
+--                  DA = Diferencia por Moneda e Importe.
+--
+--               Se considera que en la "PROCESADORA" ningun registro se repite.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --INICIO NAIGUATA
 FUNCTION pf_Load_conciliacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2:=NULL) RETURN VARCHAR2 IS
     TYPE Ref_CurTMP IS REF CURSOR;
@@ -827,8 +868,12 @@ FUNCTION pf_Load_conciliacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARC
     vTotReg         NUMBER  := 0;
     vTotRegVTA      NUMBER  := 0;
     vTotRegANU      NUMBER  := 0;
+    vTotRegNREC     NUMBER  := 0;
     vTotRegCCL      NUMBER  := 0;
     vTotRegDIF      NUMBER  := 0;
+    vmsg            NUMBER  := 0;
+    vP04IMPTRA      NUMBER  := 0;
+    vP46TCUOT01     NUMBER  := 0;
 BEGIN
 
     /* PROCESO CONCILIACION MAESTRO NAIGUATA
@@ -845,8 +890,8 @@ BEGIN
        raise efinerror;
     END IF;
 
-    /* PREPARA DATA DE MOVIMIENTOS
-    ******************************/
+    /* PREPARA DATA DE MOVIMIENTOS DE NAIGUATA
+    ******************************************/
 
     -- COPIA MOVIMIENTOS DE MCP
     pqmonproc.inslog(vIdProc, 'M', 'Copia movimientos de MCP Naiguata');
@@ -855,7 +900,8 @@ BEGIN
     pqmonproc.inslog(vIdProc, 'M', 'Reestablece como Pendientes datos anteriores de Naiguata');
     UPDATE mcp_maestro_conc_ngta
        SET flg_concil = 'P',
-           fec_concil = NULL
+           fec_concil = NULL,
+           idparticion ='C000'
      WHERE cod_entadq = pcod_entadq
        AND fec_concil = pfecha;
     COMMIT;
@@ -891,6 +937,12 @@ BEGIN
     /* REALIZANDO CRUCE MAESTRO NAIGUATA Y PROCESADORA
     **************************************************/
     pqmonproc.inslog(vIdProc, 'M', 'Realizando cruce entre Maestro Naiguata y Procesadora');
+    --vIdPart:=SGCVNZ.FN_GETPARTICION2(pfecha); 
+    -----------------------------------------------------------
+    --- Obtener la particion correspondiente a pfecha       ---
+    wkStrPart:=SGCVNZ.FN_GETPARTICION(TO_CHAR(pfecha,'YYYY'))||TO_CHAR(pfecha,'MM')||TO_CHAR(pfecha,'DAY','NLS_DATE_LANGUAGE=''numeric date language''');
+    -----------------------------------------------------------
+    pqmonproc.inslog(vIdProc, 'M', 'Capturando particion: ==>'||wkStrPart);
     LOOP
     FETCH CurTMP INTO RegTMP;
     EXIT WHEN CurTMP%NOTFOUND;
@@ -900,26 +952,61 @@ BEGIN
            vTotRegVTA := vTotRegVTA + 1;
         ELSIF RegTMP.MSGTYPE = 'EREC' THEN
               vTotRegANU := vTotRegANU + 1;
+        ELSIF RegTMP.MSGTYPE = 'NREC' THEN
+              vTotRegNREC := vTotRegNREC + 1;
         END IF;
-        -- BUSCAMOS EN "PROCESADORA"
-        vNCont   := f_GetBuscaNumRegistros_Ngta(RegTMP);
-        IF vNCont = 0 THEN
-            -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
-            vTotRegDIF := vTotRegDIF + 1;
-            p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
-        ELSIF vNCont=1 THEN
-            -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
-            vTipDif:= f_GetTipoDiferencia_Ngta(RegTMP);
-            IF vTipDif is null THEN
-                -- REGISTRA CONCILIACION OK
-                vTotRegCCL := vTotRegCCL + 1;
-                p_SaveConciliacion_Ngta(RegTMP,pfecha);
-            ELSE
-                -- REGISTRA DIFERENCIA
+        
+        IF RegTMP.MSGTYPE = 'FREC' OR RegTMP.MSGTYPE = 'EREC'  THEN
+            -- BUSCAMOS EN "PROCESADORA"
+            vNCont   := f_GetBuscaNumRegistros_Ngta(RegTMP);
+            IF vNCont = 0 THEN
+                -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
                 vTotRegDIF := vTotRegDIF + 1;
-                p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
+                p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
+            ELSIF vNCont=1 THEN
+                -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
+                vTipDif:= f_GetTipoDiferencia_Ngta(RegTMP);
+                IF vTipDif is null THEN
+                    -- REGISTRA CONCILIACION OK
+                    vTotRegCCL := vTotRegCCL + 1;
+                    p_SaveConciliacion_Ngta(RegTMP,pfecha);
+                ELSE
+                    -- REGISTRA DIFERENCIA
+                    vTotRegDIF := vTotRegDIF + 1;
+                    p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
+                END IF;
             END IF;
-        END IF;
+        ELSIF RegTMP.MSGTYPE = 'NREC' THEN
+            /* Inicio conciliacion Naiguata NREC
+            ******************************************/
+            FOR msg IN 1..2 LOOP
+                IF msg = 1 THEN
+                    vmsg := '1244';
+                ELSE
+                    vmsg := '1444';
+                END IF; 
+                -- BUSCAMOS EN "PROCESADORA"
+                vNCont   := f_GetBuscaNumRegistros_NgtaNREC(RegTMP, vmsg);  
+                IF vNCont = 0 THEN
+                    -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
+                    vTotRegDIF := vTotRegDIF + 1;
+                    p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
+                ELSIF vNCont=1 THEN
+                    -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
+                    vTipDif:= f_GetTipoDiferencia_NgtaNREC(RegTMP, vmsg);
+                    IF vTipDif is null THEN
+                        -- REGISTRA CONCILIACION OK
+                        vTotRegCCL := vTotRegCCL + 1;
+                        p_SaveConciliacion_NgtaNREC(RegTMP,pfecha,vmsg);
+                    ELSE
+                        -- REGISTRA DIFERENCIA
+                        vTotRegDIF := vTotRegDIF + 1;
+                        p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
+                    END IF;
+                END IF;  
+            END LOOP; 
+        END IF;    
+            
     END LOOP;
     CLOSE CurTMP;
 
@@ -928,6 +1015,7 @@ BEGIN
     pqmonproc.inslog(vIdProc, 'M', ' - Total : '  ||LTRIM(TO_CHAR(vTotReg,'999,999'))||' registros');
     pqmonproc.inslog(vIdProc, 'M', ' - Total Ventas Naiguata: '     ||LTRIM(TO_CHAR(vTotRegVTA,'999,999'))||' registros');
     pqmonproc.inslog(vIdProc, 'M', ' - Total Anulaciones Naiguata: '||LTRIM(TO_CHAR(vTotRegANU,'999,999'))||' registros');
+    pqmonproc.inslog(vIdProc, 'M', ' - Total Vta-AnuNREC Naiguata: '||LTRIM(TO_CHAR(vTotRegNREC,'999,999'))||' registros');
     pqmonproc.inslog(vIdProc, 'M', 'Resumen de Conciliacion Naiguata:');
     pqmonproc.inslog(vIdProc, 'M', ' - Total Conciliadas Naiguata: '||LTRIM(TO_CHAR(vTotRegCCL,'999,999'))||' registros');
     pqmonproc.inslog(vIdProc, 'M', ' - Total Diferencias Naiguata: '||LTRIM(TO_CHAR(vTotRegDIF,'999,999'))||' registros');
@@ -957,15 +1045,27 @@ EXCEPTION
              RETURN 'EERROR de Base de Datos (ORA-'||LPAD(vOraCode,5,'0')||')~';
 END;
 
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : p_CopyMovimientosMCP_Ngta.
+-- Autor       : Barbara Rivas.
+-- Fecha Creac.: 03/02/2020.
+-- Descripcion : Proceso que actualiza la tabla de MCP_MAESTRO_CONC_NGTA obteniendo
+--               los datos de MCP_BP y MCP_BP.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 PROCEDURE p_CopyMovimientosMCP_Ngta(pfecha DATE, pbanco VARCHAR2) AS
     vcant       PLS_INTEGER := 0;
     vest_proc   CHAR        := NULL;
     vfecha      DATE;
+    wkIdPart   CHAR;                      /* VARIABLE  LA PARTICION */
+    wkIdMes    CHAR(2);                   /*  VARIABLE SUBPARTICION */
+
 BEGIN
     -- ACTUALIZA TABLA MAESTRO CONCILIACION
     FOR ndias IN REVERSE 0..5 LOOP
         vfecha := pfecha - ndias;
-        -- VERIFICA DIA PROCESADO
+        wkIdPart   :=SGCVNZ.FN_GETPARTICION(TO_CHAR(vfecha -1,'YYYY'));  /* OBTENER LA PARTICION , fec_sesion = vfecha -1*/
+        wkIdMes   :=TO_CHAR(TO_NUMBER(TO_CHAR(vfecha - 1,'MM')));        /*  OBTENER LA SUBPARTICION, vfecha -1  */
+        -- VERIFICA DIA PROCESADO PARA NAIGUATA
         BEGIN
            SELECT est_proc
              INTO vest_proc
@@ -989,7 +1089,7 @@ BEGIN
             -- BANCO MERCANTIL
             IF pbanco='BM' THEN
                 INSERT INTO mcp_maestro_conc_ngta
-                (id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                (idparticion,id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -1001,7 +1101,7 @@ BEGIN
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, flg_concil, fec_sesion)
                 SELECT
-                id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                'C000',id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -1013,14 +1113,16 @@ BEGIN
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, 'P', TO_DATE(p28sesion,'YYYYMMDD')
                 FROM mcp_bm
-                WHERE cod_entadq = 'BM'
+                WHERE idparticion = wkIdPart
+                AND   id_mes      = wkIdMes
+                AND   cod_entadq  = 'BM'
                 AND p28sesion = TO_CHAR(vfecha-1,'YYYYMMDD')
                 AND p48tiptra LIKE '10%'
                 AND p71nummen LIKE '9010%'; --Ajuste IPR1302 06032020 FJVG
             -- BANCO PROVINCIAL
             ELSIF pbanco='BP' THEN
                 INSERT INTO mcp_maestro_conc_ngta  --Ajuste IPR1302 06032020 FJVG
-                (id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                (idparticion,id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -1032,7 +1134,7 @@ BEGIN
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, flg_concil, fec_sesion)
                 SELECT
-                id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
+                'C000',id_mov, cod_entadq, csb_entadq, cod_hrcierre, p00idmsg,
                 p02numtar, p03codpro, p04imptra, p05impcon, p06imptit, p09concon,
                 p10concli, p11idetra, p12timloc, p14feccad, p16feccon, p17feccap,
                 p18lacti, p22punser, p24codfun, p25codraz, p26lacti, p28sesion,
@@ -1044,7 +1146,9 @@ BEGIN
                 p62melect, p71nummen, pxxfiller, tipo_insert, es_dataok,
                 tipo_auxfunc, 'P', TO_DATE(p28sesion,'YYYYMMDD')
                 FROM mcp_bp
-                WHERE cod_entadq = 'BP' 
+                WHERE idparticion = wkIdPart
+                AND   id_mes      = wkIdMes
+                AND   cod_entadq  = 'BP'
                 AND p28sesion = TO_CHAR(vfecha-1,'YYYYMMDD')
                 AND p48tiptra LIKE '10%'
                 AND p71nummen LIKE '9010%'; --Ajuste IPR1302 06032020 fjvg
@@ -1054,6 +1158,13 @@ BEGIN
     END LOOP;
 
 END;
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : p_SaveDiferencia_Ngta.
+-- Fecga Creac.: 03/02/2020.
+-- Autor       : Barbara Rivas.
+-- Descripcion : Procedimiento que inserta el registro en la tabla de diferencias naiguata.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 PROCEDURE p_SaveDiferencia_Ngta( preg Reg_TMP, pfecha DATE, ptipodiff VARCHAR2) AS
 BEGIN
@@ -1075,6 +1186,14 @@ BEGIN
 COMMIT ;
 
 END;
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetBuscaNumRegistros_Ngta.
+-- Autor       : Barbara Rivas.
+-- Fecha Creac.: 03/02/2020.
+-- Descripcion : Funcion que obtiene la cantidad de registros en la tabla
+--               "MCP_MAESTRO_CONC" de a acuerdo al registro buscado.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION f_GetBuscaNumRegistros_Ngta(preg Reg_TMP) return number is
     vncont  NUMBER(7);
@@ -1100,6 +1219,46 @@ BEGIN
     END IF;
     RETURN vncont;
 END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetBuscaNumRegistros_NgtaNREC.
+-- Autor       : Barbara Rivas.
+-- Fecha Creac.: 03/02/2020.
+-- Descripcion : Funcion que obtiene la cantidad de registros en la tabla
+--               "MCP_MAESTRO_CONC" de a acuerdo al registro buscado.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number is
+    vncont  NUMBER(7);
+BEGIN
+    IF vmsg = '1244' THEN
+        -- VENTAS
+        SELECT NVL (COUNT (*), 0)
+          INTO vncont
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p12timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p11idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1244';
+    ELSIF vmsg = '1444' THEN
+        -- ANULACIONES
+        SELECT NVL (COUNT (*), 0)
+          INTO vncont
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p56do_timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1444';
+    END IF;
+    RETURN vncont;
+END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetTipoDiferencia_Ngta
+-- Autor       : Barbara Rivas.
+-- Fecha Creac.: 03/02/2020.
+-- Descripcion : Funcion que obtiene los tipo de diferencia por Monto o Importe.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION f_GetTipoDiferencia_Ngta(preg Reg_TMP) return char is
     vTDif           CHAR(2);
@@ -1139,6 +1298,65 @@ BEGIN
     END IF;
     RETURN vTDif;
 END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetTipoDiferencia_NgtaNREC
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 06/05/2020.
+-- Descripcion : Funcion que obtiene los tipo de diferencia por Monto o Importe.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char is
+    vTDif           CHAR(2);
+    vMCPmoneda      NUMBER(3,0);
+    vMCPimporte     NUMBER(12,0);
+BEGIN
+    IF vmsg = '1244' THEN
+        -- VENTAS
+        SELECT p49montra, p04imptra
+          INTO vmcpmoneda, vmcpimporte
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p12timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p11idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1244';
+    ELSIF vmsg = '1444' THEN
+        -- ANULACIONES
+        SELECT p49montra, p04imptra
+          INTO vmcpmoneda, vmcpimporte
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p56do_timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1444';
+    END IF;
+
+    vTDif := null;
+
+    IF NOT (preg.p49montra = vMCPmoneda) AND NOT (preg.p04imptra = vMCPimporte OR preg.p04imptra_2 = vMCPimporte) THEN
+        vTDif := 'DA';     -- CASO 1: DIFERENCIA DE MONEDA E IMPORTE
+    ELSE
+        IF NOT(preg.p49montra = vMCPmoneda) THEN
+            vTDif := 'DM'; -- CASO 2: DIFERENCIA DE MONEDA
+        ELSIF NOT(preg.p04imptra = vMCPimporte OR preg.p04imptra_2 = vMCPimporte) THEN
+            vTDif := 'DI'; -- CASO 3: DIFERENCIA DE IMPORTE
+        END IF;
+    END IF;
+    RETURN vTDif;
+END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : pf_Load_compensacion_ngta
+--               pfecha -> Fecha de proceso
+-- Autor       : Barbara Rivas
+-- Descripci??n : Proceso para compensacion, lee la tabla "TMP_MAESTRO_COMP_NGTA",
+--               obtiene importes y operaciones y actualiza la tabla
+--               "CLR_RESUMEN_MAESTRO_NGTA".
+-- Precondicion: Debe de estar procesado la conciliacion de esta fecha.
+-- La carga es por archivo CTL a una tabla temporal inicial.
+-- Luego se lee la tabla temporal y se carga la info a "CLR_RESUMEN_MAESTRO_NGTA".
+-- Actualiza los registros cargados en la temporal.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 FUNCTION pf_Load_compensacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARCHAR2) RETURN VARCHAR2 IS
     TYPE Ref_CurTMP IS REF CURSOR;
@@ -1290,31 +1508,80 @@ EXCEPTION
              RETURN 'EERROR de Base de Datos (ORA-'||LPAD(vOraCode,5,'0')||')~';
 END;
 
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : p_SaveConciliacion_Ngta.
+-- Autor       : Barbara Rivas.
+-- Fecha Creac.: 03/02/2020.
+-- Descripci??n : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC_NGTA.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 PROCEDURE p_SaveConciliacion_Ngta(preg Reg_TMP, pfecha DATE) AS
 BEGIN
     -- ACTUALIZA ESTADO EN TABLA MAESTRO CONCILIACION NAIGUATA
 
     IF (preg.msgtype = 'FREC') THEN
         -- VENTA
-        UPDATE mcp_maestro_conc_ngta mcp
+        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici�n por DEFAULT 12/03/2020 */
            SET flg_concil = 'C',
                fec_concil = pfecha,
-               p03codpro_maestro = preg.p03codpro,
-               p04imptra_maestro = preg.p04imptra,
-               p46tcuot01_maestro = preg.p46tcuot01
+               p03codpro_maestro  = preg.p03codpro,
+               p04imptra_maestro  = preg.p04imptra,
+               p46tcuot01_maestro = preg.p46tcuot01,
+               idparticion        = wkStrPart /* Establecer la partici�n 13/03/2020*/
          WHERE mcp.p12timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p11idetra = preg.p11idetra
            AND mcp.cod_entadq = preg.p32idadq;
     ELSIF (preg.msgtype = 'EREC') THEN
         -- ANULACION
-        UPDATE mcp_maestro_conc_ngta mcp
+        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici�n por DEFAULT 12/03/2020 */
            SET flg_concil = 'C',
                fec_concil = pfecha,
-               p03codpro_maestro = preg.p03codpro,
-               p04imptra_maestro = preg.p04imptra,
-               p46tcuot01_maestro = preg.p46tcuot01
-         WHERE mcp.p56do_timloc = preg.p12timloc
+               p03codpro_maestro  = preg.p03codpro,
+               p04imptra_maestro  = preg.p04imptra,
+               p46tcuot01_maestro = preg.p46tcuot01,
+               idparticion        = wkStrPart /* Establecer la partici�n 13/03/2020*/
+         WHERE mcp.p56do_timloc   = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq;
+    END IF;
+    COMMIT;
+END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : p_SaveConciliacion_NgtaNREC.
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 07/05/2020.
+-- Descripci??n : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC_NGTA.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2) AS
+BEGIN
+    -- ACTUALIZA ESTADO EN TABLA MAESTRO CONCILIACION NAIGUATA
+
+    IF (vmsg = '1244') THEN
+        -- VENTA
+        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici?n por DEFAULT 12/03/2020 */
+           SET flg_concil = 'C',
+               fec_concil = pfecha,
+               p03codpro_maestro  = preg.p03codpro,
+               p04imptra_maestro  = p04imptra,      --preg.p04imptra,
+               p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
+               idparticion        = wkStrPart /* Establecer la partici?n 13/03/2020*/
+         WHERE mcp.p12timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p11idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq;
+    ELSIF (vmsg = '1444') THEN
+        -- ANULACION
+        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici?n por DEFAULT 12/03/2020 */
+           SET flg_concil = 'C',
+               fec_concil = pfecha,
+               p03codpro_maestro  = preg.p03codpro,
+               p04imptra_maestro  = p04imptra,      --preg.p04imptra,
+               p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
+               idparticion        = wkStrPart             /* Establecer la partici?n 13/03/2020*/
+         WHERE mcp.p56do_timloc   = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
            AND mcp.cod_entadq = preg.p32idadq;
@@ -1323,6 +1590,10 @@ BEGIN
 END;
 --FIN    NAIGUATA
 
+
 END;
 /
+
+
 GRANT EXECUTE ON SGCVNZ.PQPMAESTRO TO ROLE_SOPTECN;
+
