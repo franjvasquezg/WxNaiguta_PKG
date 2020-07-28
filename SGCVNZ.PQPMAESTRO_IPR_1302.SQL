@@ -1,19 +1,21 @@
 CREATE OR REPLACE PACKAGE SGCVNZ.PQPMAESTRO IS
 /***************************************************************************************************
 *********   Proyecto : Procesadora Venezuela   *****************************************************
-*********   Proposito: Compensaci��n y Conciliaci��n Maestro    **************************************
+*********   Proposito: Compensación y Conciliación Maestro    **************************************
  Historial
  =========
  Persona                  Fecha           Comentarios
  --------------------     -----------     ------------
- Jes��s Mu��ante Gonzales.  15/Febrero/2008   Compensaci��n y Conciliaci��n Maestro
+ Jesús Muñante Gonzales.  15/Febrero/2008   Compensación y Conciliación Maestro
 
  parametro del Package: pbanco char [BM:Mercantil, BP:Provincial]
- parametro del Package: pfecha char [a��o|mes|dia 20070827]
+ parametro del Package: pfecha char [año|mes|dia 20070827]
  parametro del Package: pcarga char [N:Nuevo, R:Reproceso]
- Barbara Rivas.           03/02/2020        Compensaci���n y Conciliaci���n Maestro Naiguata
- Francisco vasquez        04/03/2020        Ajustes producci���n
- FVG y BR                 08/05/2020        Conciliacion con NREC para naiguata IPR1302   
+ Barbara Rivas.           03/02/2020        Compensación y Conciliación Maestro Naiguata
+ Francisco vasquez        04/03/2020        Ajustes producción
+ FVG y BR                 08/05/2020        Conciliacion con NREC para naiguata IPR1302  
+ FVG                      30/05/2020        Conciliacion con NREC Se incluye las Anulaciones (4001)
+ FVG                      01/06/2020        Conciliacion con NREC Reversos y Anulaciones Integración
 ****************************************************************************************************/
 vIdPart          CHAR           :=NULL;  /* INCLUSI��N DEL PARTICIONAMINTO */
 vidMes          NUMBER          :=NULL;
@@ -132,10 +134,16 @@ type Reg_TMP_COMP is record(
   PROCEDURE p_SaveConciliacion_Ngta(preg Reg_TMP, pfecha DATE);
   /*Fin Adici??n de procedimientos IPR_1302.*/
   /*GlobalR - FV: e procedimientos IPR_1302. 06-05-2020*/
-  FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number;
-  FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char;
-  PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2);
+  /*FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number;*/
+  /*FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char;*/
+  /*PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2);*/
   /*FIN - FV: e procedimientos IPR_1302. 06-05-2020*/
+  /*GlobalR - FV: e procedimientos IPR_1302. 29-05-2020*/
+  FUNCTION f_GetBuscaTipoAnuRevNREC(preg Reg_TMP)return number;
+  FUNCTION f_GetBuscaNumReg_NgNRECA(preg Reg_TMP, vmsg VARCHAR2) return number;
+  FUNCTION f_GetTipoDif_NgNRECA(preg Reg_TMP, vmsg VARCHAR2) return char;
+  PROCEDURE p_SaveConc_NgNRECA(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2);
+  /*FIN - FV: e procedimientos IPR_1302. 30-05-2020*/
 end;
 /
 
@@ -874,6 +882,8 @@ FUNCTION pf_Load_conciliacion_ngta(pcod_entadq VARCHAR2, pfecha DATE, pfile VARC
     vmsg            NUMBER  := 0;
     vP04IMPTRA      NUMBER  := 0;
     vP46TCUOT01     NUMBER  := 0;
+    tAnuRev         NUMBER(5);
+    
 BEGIN
 
     /* PROCESO CONCILIACION MAESTRO NAIGUATA
@@ -979,32 +989,80 @@ BEGIN
         ELSIF RegTMP.MSGTYPE = 'NREC' THEN
             /* Inicio conciliacion Naiguata NREC
             ******************************************/
-            FOR msg IN 1..2 LOOP
-                IF msg = 1 THEN
-                    vmsg := '1244';
-                ELSE
-                    vmsg := '1444';
-                END IF; 
-                -- BUSCAMOS EN "PROCESADORA"
-                vNCont   := f_GetBuscaNumRegistros_NgtaNREC(RegTMP, vmsg);  
-                IF vNCont = 0 THEN
-                    -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
-                    vTotRegDIF := vTotRegDIF + 1;
-                    p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
-                ELSIF vNCont=1 THEN
-                    -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
-                    vTipDif:= f_GetTipoDiferencia_NgtaNREC(RegTMP, vmsg);
-                    IF vTipDif is null THEN
-                        -- REGISTRA CONCILIACION OK
-                        vTotRegCCL := vTotRegCCL + 1;
-                        p_SaveConciliacion_NgtaNREC(RegTMP,pfecha,vmsg);
+            --Busca si es Anulación(4001) o Reverso(4006)
+            --pqmonproc.inslog(vIdProc, 'M', 'Buscando tipo de reg ANU O REV');
+            --tAnuRev:= f_GetBuscaTipoAnuRevNREC(RegTMP);
+            /*IF tAnuRev = '4006' THEN
+                FOR msg IN 1..2 LOOP
+                    IF msg = 1 THEN
+                        vmsg := '1244';
                     ELSE
-                        -- REGISTRA DIFERENCIA
-                        vTotRegDIF := vTotRegDIF + 1;
-                        p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
-                    END IF;
-                END IF;  
-            END LOOP; 
+                        vmsg := '1444';
+                    END IF; 
+                    -- BUSCAMOS EN "PROCESADORA"
+                    vNCont   := f_GetBuscaNumRegistros_NgtaNREC(RegTMP, vmsg);  
+                    IF vNCont = 0 THEN
+                        -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
+                        pqmonproc.inslog(vIdProc, 'M', 'Diff EM P11IDETRA='||RegTMP.p11idetra);  
+                        IF msg = 1 THEN
+                            vTotRegDIF := vTotRegDIF + 1;
+                            p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
+                        END IF; 
+                    ELSIF vNCont=1 THEN
+                        -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
+                        vTipDif:= f_GetTipoDiferencia_NgtaNREC(RegTMP, vmsg);
+                        IF vTipDif is null THEN
+                            -- REGISTRA CONCILIACION OK
+                            vTotRegCCL := vTotRegCCL + 1;
+                            p_SaveConciliacion_NgtaNREC(RegTMP,pfecha,vmsg);
+                        ELSE
+                            -- REGISTRA DIFERENCIA
+                            pqmonproc.inslog(vIdProc, 'M', 'Diff DA,DM o DI P11IDETRA='||RegTMP.p11idetra);
+                            IF msg = 1 THEN
+                                vTotRegDIF := vTotRegDIF + 1;
+                                p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
+                            END IF;
+                        END IF;
+                    END IF;  
+                END LOOP;
+            ELSIF tAnuRev = '4001' THEN*/
+            /*Los NREC Reversos y Annulación tienen mismo Comportamiento IPR1302 01/06/2020 FVG
+            -----------------------------------------------------------------------------------*/
+                FOR msg IN 1..2 LOOP
+                    IF msg = 1 THEN
+                        vmsg := '1244';
+                    ELSE
+                        vmsg := '1444';
+                    END IF; 
+                    -- BUSCAMOS EN "PROCESADORA"
+                    vNCont   := f_GetBuscaNumReg_NgNRECA(RegTMP, vmsg);  
+                    IF vNCont = 0 THEN
+                        -- EXISTE EN "MAESTRO NAIGUATA" PERO NO EN "PROCESADORA"
+                        pqmonproc.inslog(vIdProc, 'M', 'Diff EM P11IDETRA='||RegTMP.p11idetra);  
+                        IF msg = 1 THEN
+                            vTotRegDIF := vTotRegDIF + 1;
+                            p_SaveDiferencia_Ngta(RegTMP,pfecha,'EM');
+                        END IF;
+                    ELSIF vNCont=1 THEN
+                        -- EXISTE EN "MAESTRO NAIGUATA" Y "PROCESADORA"
+                        vTipDif:= f_GetTipoDif_NgNRECA(RegTMP, vmsg);
+                        IF vTipDif is null THEN
+                            -- REGISTRA CONCILIACION OK
+                            vTotRegCCL := vTotRegCCL + 1;
+                            p_SaveConc_NgNRECA(RegTMP,pfecha,vmsg);
+                        ELSE
+                            -- REGISTRA DIFERENCIA
+                            pqmonproc.inslog(vIdProc, 'M', 'Diff DA,DM o DI P11IDETRA='||RegTMP.p11idetra);
+                            IF msg = 1 THEN
+                                vTotRegDIF := vTotRegDIF + 1;
+                                p_SaveDiferencia_Ngta(RegTMP,pfecha,vTipDif);
+                            END IF;
+                        END IF;
+                    END IF;  
+                END LOOP;
+            
+            --END IF;
+                  
         END IF;    
             
     END LOOP;
@@ -1227,7 +1285,7 @@ END;
 --               "MCP_MAESTRO_CONC" de a acuerdo al registro buscado.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number is
+/*FUNCTION f_GetBuscaNumRegistros_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return number is
     vncont  NUMBER(7);
 BEGIN
     IF vmsg = '1244' THEN
@@ -1248,6 +1306,41 @@ BEGIN
          WHERE mcp.p56do_timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1444';
+    END IF;
+    RETURN vncont;
+END;*/
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetBuscaNumReg_NgNRECA.
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 29/05/2020.
+-- Descripcion : Funcion que obtiene la cantidad de registros en la tabla
+--               "MCP_MAESTRO_CONC" de a acuerdo al registro buscado.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FUNCTION f_GetBuscaNumReg_NgNRECA(preg Reg_TMP, vmsg VARCHAR2) return number is
+    vncont  NUMBER(7);
+BEGIN
+    pqmonproc.inslog(vIdProc, 'M', '4001 Buscando en procesadora');
+    IF vmsg = '1244' THEN
+        -- VENTAS
+        SELECT NVL (COUNT (*), 0)
+          INTO vncont
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p12timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p11idetra = preg.p11idetra_2    --preg.p11idetra FV IPR1302 29052020
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1244';
+    ELSIF vmsg = '1444' THEN
+        -- ANULACIONES
+        SELECT NVL (COUNT (*), 0)
+          INTO vncont
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p56do_timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p56do_idetra = preg.p11idetra_2  --preg.p11idetra FV IPR1302 29052020
            AND mcp.cod_entadq = preg.p32idadq
            AND mcp.P00IDMSG = '1444';
     END IF;
@@ -1305,7 +1398,7 @@ END;
 -- Descripcion : Funcion que obtiene los tipo de diferencia por Monto o Importe.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char is
+/*FUNCTION f_GetTipoDiferencia_NgtaNREC(preg Reg_TMP, vmsg VARCHAR2) return char is
     vTDif           CHAR(2);
     vMCPmoneda      NUMBER(3,0);
     vMCPimporte     NUMBER(12,0);
@@ -1328,6 +1421,54 @@ BEGIN
          WHERE mcp.p56do_timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
            AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1444';
+    END IF;
+
+    vTDif := null;
+
+    IF NOT (preg.p49montra = vMCPmoneda) AND NOT (preg.p04imptra = vMCPimporte OR preg.p04imptra_2 = vMCPimporte) THEN
+        vTDif := 'DA';     -- CASO 1: DIFERENCIA DE MONEDA E IMPORTE
+    ELSE
+        IF NOT(preg.p49montra = vMCPmoneda) THEN
+            vTDif := 'DM'; -- CASO 2: DIFERENCIA DE MONEDA
+        ELSIF NOT(preg.p04imptra = vMCPimporte OR preg.p04imptra_2 = vMCPimporte) THEN
+            vTDif := 'DI'; -- CASO 3: DIFERENCIA DE IMPORTE
+        END IF;
+    END IF;
+    RETURN vTDif;
+END;*/
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetTipoDif_NgNRECA
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 29/05/2020.
+-- Descripcion : Funcion que obtiene los tipo de diferencia por Monto o Importe.
+-- Para las anulaciones 
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FUNCTION f_GetTipoDif_NgNRECA(preg Reg_TMP, vmsg VARCHAR2) return char is
+    vTDif           CHAR(2);
+    vMCPmoneda      NUMBER(3,0);
+    vMCPimporte     NUMBER(12,0);
+BEGIN
+    IF vmsg = '1244' THEN
+        -- VENTAS
+        SELECT p49montra, p04imptra
+          INTO vmcpmoneda, vmcpimporte
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p12timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p11idetra = preg.P11IDETRA_2    --preg.p11idetra
+           AND mcp.cod_entadq = preg.p32idadq
+           AND mcp.P00IDMSG = '1244';
+    ELSIF vmsg = '1444' THEN
+        -- ANULACIONES
+        SELECT p49montra, p04imptra
+          INTO vmcpmoneda, vmcpimporte
+          FROM mcp_maestro_conc_ngta mcp
+         WHERE mcp.p56do_timloc = preg.p12timloc
+           AND mcp.p02numtar = preg.p02numtar
+           AND mcp.p56do_idetra = preg.p11idetra_2   --preg.p11idetra
            AND mcp.cod_entadq = preg.p32idadq
            AND mcp.P00IDMSG = '1444';
     END IF;
@@ -1555,7 +1696,46 @@ END;
 -- Descripci??n : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC_NGTA.
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2) AS
+--PROCEDURE p_SaveConciliacion_NgtaNREC(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2) AS
+--BEGIN
+--    -- ACTUALIZA ESTADO EN TABLA MAESTRO CONCILIACION NAIGUATA
+--    IF (vmsg = '1244') THEN
+--        -- VENTA
+--        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici?n por DEFAULT 12/03/2020 */
+--           SET flg_concil = 'C',
+--               fec_concil = pfecha,
+--               p03codpro_maestro  = preg.p03codpro,
+--               p04imptra_maestro  = p04imptra,      --preg.p04imptra,
+--               p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
+--               idparticion        = wkStrPart       /* Establecer la partici?n 13/03/2020*/
+--         WHERE mcp.p12timloc = preg.p12timloc
+--           AND mcp.p02numtar = preg.p02numtar
+--           AND mcp.p11idetra = preg.p11idetra
+--           AND mcp.cod_entadq = preg.p32idadq;
+--    ELSIF (vmsg = '1444') THEN
+--        -- ANULACION
+--        UPDATE mcp_maestro_conc_ngta PARTITION(IDPARTICION0000) mcp /* Conciliar simpre contra la partici?n por DEFAULT 12/03/2020 */
+--           SET flg_concil = 'C',
+--               fec_concil = pfecha,
+--               p03codpro_maestro  = preg.p03codpro,
+--               p04imptra_maestro  = p04imptra,      --preg.p04imptra,
+--               p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
+--               idparticion        = wkStrPart       /* Establecer la partici?n 13/03/2020*/
+--         WHERE mcp.p56do_timloc   = preg.p12timloc
+--           AND mcp.p02numtar = preg.p02numtar
+--           AND mcp.p56do_idetra = preg.p11idetra
+--           AND mcp.cod_entadq = preg.p32idadq;
+--    END IF;
+--    COMMIT;
+--END;
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Procedure   : p_SaveConc_NgNRECA.
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 30/05/2020.
+-- Descripción : proceso que actualiza el estado de la tabla de MCP_MAESTRO_CONC_NGTA.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+PROCEDURE p_SaveConc_NgNRECA(preg Reg_TMP, pfecha DATE, vmsg VARCHAR2) AS
 BEGIN
     -- ACTUALIZA ESTADO EN TABLA MAESTRO CONCILIACION NAIGUATA
 
@@ -1567,10 +1747,10 @@ BEGIN
                p03codpro_maestro  = preg.p03codpro,
                p04imptra_maestro  = p04imptra,      --preg.p04imptra,
                p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
-               idparticion        = wkStrPart /* Establecer la partici?n 13/03/2020*/
+               idparticion        = wkStrPart       /* Establecer la partici?n 13/03/2020*/
          WHERE mcp.p12timloc = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
-           AND mcp.p11idetra = preg.p11idetra
+           AND mcp.p11idetra = preg.p11idetra_2    --preg.p11idetra
            AND mcp.cod_entadq = preg.p32idadq;
     ELSIF (vmsg = '1444') THEN
         -- ANULACION
@@ -1580,16 +1760,36 @@ BEGIN
                p03codpro_maestro  = preg.p03codpro,
                p04imptra_maestro  = p04imptra,      --preg.p04imptra,
                p46tcuot01_maestro = p46tcuot01,     --preg.p46tcuot01,
-               idparticion        = wkStrPart             /* Establecer la partici?n 13/03/2020*/
+               idparticion        = wkStrPart       /* Establecer la partici?n 13/03/2020*/
          WHERE mcp.p56do_timloc   = preg.p12timloc
            AND mcp.p02numtar = preg.p02numtar
-           AND mcp.p56do_idetra = preg.p11idetra
+           AND mcp.p56do_idetra = preg.p11idetra_2   --preg.p11idetra
            AND mcp.cod_entadq = preg.p32idadq;
     END IF;
     COMMIT;
 END;
 --FIN    NAIGUATA
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Funcion     : f_GetBuscaTipoAnuRevNREC.
+-- Autor       : Francisco Vasquez.
+-- Fecha Creac.: 29/05/2020.
+-- Descripcion : Funcion que busca si el registo NREC es anulacion 
+--               Con P25CODRAZ=4001 o Un Reverso Con P25CODRAZ=4006.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+FUNCTION f_GetBuscaTipoAnuRevNREC(preg Reg_TMP) return number is
+    tanurev  number(5);
+BEGIN
+    -- TIPO ANULACION(4001) O REVERSO (4006)
+    SELECT mcp.P25CODRAZ
+      INTO tanurev
+      FROM mcp_maestro_conc_ngta mcp
+     WHERE mcp.p56do_timloc = preg.p12timloc
+       AND mcp.p02numtar = preg.p02numtar
+       AND mcp.cod_entadq = preg.p32idadq
+       AND mcp.P00IDMSG = '1444';
+    RETURN tanurev;
+END;
 
 END;
 /
